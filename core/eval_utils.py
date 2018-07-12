@@ -41,3 +41,10 @@ def print_results(true, pred, loss, phase, epoch=-1, cm=True, print_fc=print):
     return acc, precision, recall
 
 
+def top_three(true, pred, print_fc=print):
+    one = (pred[:,0]==true).astype(int)
+    two = (pred[:,1]==true).astype(int)
+    thr = (pred[:,2]==true).astype(int)
+    print_fc(f'Top-1 Accuracy: {round(one.mean(), 3)}')
+    print_fc(f'Top-2 Accuracy: {round((one+two).mean(), 3)}')
+    print_fc(f'Top-3 Accuracy: {round((one+two+thr).mean(), 3)}')

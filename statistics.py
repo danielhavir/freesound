@@ -72,6 +72,7 @@ def eval_model(loader, model, model_num, phase):
 	true = np.array(true)
 	total_loss /= (len(loaders[phase].dataset)//args.batch_size + 1)
 	acc, precision, recall = evaluate.print_results(true, predicted[:,0], total_loss, phase, cm=False)
+	top_3_acc = evaluate.top_three(true, predicted)
 
 # List of dictionaries
 for split_num, (train, test) in enumerate(kfold.split(sound_data.idxs, sound_data.df.target)):

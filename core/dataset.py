@@ -51,7 +51,7 @@ def load_and_slice(entry: dict):
 		slice_entry = deepcopy(entry)
 		pad = sample_slice.shape[0] - sample_slice.shape[1]
 		sample_slice = cv2.copyMakeBorder(sample_slice, 0, 0, pad, 0, cv2.BORDER_WRAP)
-		slice_entry['data'] = np.expand_dims(sample_slice, axis=-1)
+		slice_entry['data'] = np.float32(np.expand_dims(sample_slice, axis=-1))
 		sample.append(slice_entry)
 	return sample
 
@@ -62,13 +62,13 @@ def load_and_slice_test(entry: dict):
 	if spec.shape[1] < spec.shape[0]:
 		pad = spec.shape[0] - spec.shape[1]
 		sample_slice = cv2.copyMakeBorder(spec, 0, 0, pad, 0, cv2.BORDER_WRAP)
-		entry['data'] = np.expand_dims(sample_slice, axis=-1)
+		entry['data'] = np.float32(np.expand_dims(sample_slice, axis=-1))
 		return [entry]
 	for sample_slice in spectrum.sliding_window_split(spec):
 		slice_entry = deepcopy(entry)
 		pad = sample_slice.shape[0] - sample_slice.shape[1]
 		sample_slice = cv2.copyMakeBorder(sample_slice, 0, 0, pad, 0, cv2.BORDER_WRAP)
-		slice_entry['data'] = np.expand_dims(sample_slice, axis=-1)
+		slice_entry['data'] = np.float32(np.expand_dims(sample_slice, axis=-1))
 		sample.append(slice_entry)
 	return sample
 
