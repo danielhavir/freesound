@@ -34,7 +34,14 @@ def cache_spectrogram(filename: str):
 	pcm = mf.read_wav(os.path.join('data', 'train', filename))
 	spec = spectrum.mel(pcm)
 	name, file_extension = os.path.splitext(filename)
-	utils.save_array(spec, os.path.join('data', 'cache', name + '.h5'))
+	utils.save_array(spec, os.path.join('data', 'cache', 'train', name + '.h5'))
+
+
+def cache_test_spectrogram(filename: str):
+	pcm = mf.read_wav(os.path.join('data', 'test', filename))
+	spec = spectrum.mel(pcm)
+	name, file_extension = os.path.splitext(filename)
+	utils.save_array(spec, os.path.join('data', 'cache', 'test', name + '.h5'))
 
 
 def load_and_slice(entry: dict):
@@ -49,26 +56,46 @@ def load_and_slice(entry: dict):
 	return sample
 
 
+def load_and_slice_test(entry: dict):
+	spec = utils.load_array(entry['fpath'])
+	sample = []
+	if spec.shape[1] < spec.shape[0]:
+		pad = spec.shape[0] - spec.shape[1]
+		sample_slice = cv2.copyMakeBorder(spec, 0, 0, pad, 0, cv2.BORDER_WRAP)
+		entry['data'] = np.expand_dims(sample_slice, axis=-1)
+		return [entry]
+	for sample_slice in spectrum.sliding_window_split(spec):
+		slice_entry = deepcopy(entry)
+		pad = sample_slice.shape[0] - sample_slice.shape[1]
+		sample_slice = cv2.copyMakeBorder(sample_slice, 0, 0, pad, 0, cv2.BORDER_WRAP)
+		slice_entry['data'] = np.expand_dims(sample_slice, axis=-1)
+		sample.append(slice_entry)
+	return sample
+
+
 class SoundData(object):
 	def __init__(self, test_size=0.2, num_processes=8, seed=42):
 		self.df = pd.read_csv(os.path.join(DATA_PATH, 'train.csv'))
-		self.cache_dir = os.path.join(DATA_PATH, 'cache')
+		self.cache_dir = os.path.join(DATA_PATH, 'cache', 'train')
 		if not os.path.exists(self.cache_dir):
 			os.mkdir(self.cache_dir)
 		self.num_processes = num_processes
 		self.unique_label = np.sort(self.df.label.unique()).tolist()
 		self.label2idx = dict(zip(self.unique_label, range(len(self.unique_label))))
+		self.idx2label = dict(zip(range(len(self.unique_label)), self.unique_label))
 		self.df.loc[:, 'target'] = self.df.label.apply(lambda x: self.label2idx[x])
 		self.df.loc[:, 'fpath'] = self.df.fname.apply(lambda x: os.path.join(DATA_PATH, 'train', x))
 		self.df.loc[:, 'h5f'] = self.df.fname.apply(lambda x: os.path.join(self.cache_dir, os.path.splitext(x)[0] + '.h5'))
 		self.num_classes = len(self.unique_label)
 		self.cache_samples()
-		self.train_idx, self.test_idx = train_test_split(self.df.index.values, test_size=test_size, random_state=seed)
+		self.idxs = self.df.index.values
+		self.train_idx, self.test_idx = train_test_split(self.idxs, test_size=test_size, random_state=seed)
 
 	def cache_samples(self):
 		if not os.listdir(self.cache_dir):
+			print("Caching...")
 			pool = mp.Pool(processes=self.num_processes)
-			pool.map(cache_spectrogram, self.df.fname.tolist())
+			pool.map(cache_spectrogram, (self.df.fname).tolist())
 			print("DATASET cached")
 
 	def reset_index(self, train, test):
@@ -116,11 +143,52 @@ class Dset(thd.Dataset):
 		return spec, self.data[idx]['target'], self.data[idx]['index']
 
 
+class TestDset(thd.Dataset):
+	def __init__(self, num_processes=3, transform=None):
+		self.data_dir = os.path.join(DATA_PATH, 'test')
+		self.cache_dir = os.path.join(DATA_PATH, 'cache', 'test')
+		if not os.path.exists(self.cache_dir):
+			os.mkdir(self.cache_dir)
+		self.h5fs = sorted(os.listdir(self.cache_dir))
+		self.idx2fname = dict(zip(range(len(self.h5fs)), [os.path.splitext(h5f)[0] + '.wav' for h5f in self.h5fs]))
+		
+		pool = mp.Pool(processes=num_processes)
+
+		if not os.listdir(self.cache_dir):
+			pool.map(cache_test_spectrogram, os.listdir(self.data_dir))
+		
+		self.samples = []
+		for i, fname in enumerate(tqdm(self.h5fs, desc=f'Loading test spectrograms')):
+			entry = {}
+			entry['fname'] = os.path.splitext(fname)[0]
+			entry['index'] = i
+			entry['fpath'] = os.path.join(self.cache_dir, fname)
+			self.samples.append(entry)
+		
+		self.data = pool.map(load_and_slice_test, self.samples)
+		self.data = list(itertools.chain.from_iterable(self.data))
+
+		self.transform = transform
+	
+	def __len__(self):
+		return len(self.data)
+	
+	def __getitem__(self, idx):
+		spec = self.data[idx]['data']
+
+		if self.transform is not None:
+			spec = self.transform(spec)
+
+		return spec, self.data[idx]['index']
+
+
 if __name__ == '__main__':
 	from time import time
 	t0 = time()
-	sound_data = SoundData(num_processes=6)
-	train_df, test_df = sound_data.get_train_test_split()
-	trainset = Dset(train_df, num_processes=6, transform=data_transforms['train'])
-	testset = Dset(test_df, num_processes=6, transform=data_transforms['test'])
+	sound_data = SoundData(phase='test', num_processes=2)
+	#train_df, test_df = sound_data.get_train_test_split()
+	#trainset = Dset(train_df, num_processes=6, transform=data_transforms['train'])
+	#valset = Dset(test_df, num_processes=6, transform=data_transforms['test'])
+	testset = TestDset(num_processes=2, transform=data_transforms['test'])
 	print(time() - t0)
+	import pdb; pdb.set_trace()

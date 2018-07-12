@@ -22,12 +22,16 @@ stats_files = [i for i in os.listdir(RUN_DIR) if i.startswith('stats')]
 num_splits = len(stats_files)
 
 stats = {}
-for i in range(num_splits):
-    with open(os.path.join(RUN_DIR, f'stats-run-{i}.json'), 'r') as f:
-        stats[i] = json.load(f)
+if num_splits == 1:
+    with open(os.path.join(RUN_DIR, 'stats-run.json'), 'r') as f:
+        stats[0] = json.load(f)
+else:
+    for i in range(num_splits):
+        with open(os.path.join(RUN_DIR, f'stats-run-{i}.json'), 'r') as f:
+            stats[i] = json.load(f)
 num_epochs = stats[0]['epochs']
 
-metrics = ['accuracy', 'recall', 'precision', 'loss']
+metrics = ['accuracy', 'loss', 'recall', 'precision']
 colors = ['b', 'r']
 statistics = defaultdict(list)
 snaps = []

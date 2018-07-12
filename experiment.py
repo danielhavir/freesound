@@ -11,7 +11,7 @@ import core.logger as log
 from sklearn.model_selection import KFold, StratifiedKFold
 from model.densenet import *
 from model.resnet import *
-from core.mixup import Mixup, BinaryCrossEntropy
+from core.mixup import Mixup, OneHotCrossEntropy
 from core.snap_scheduler import SnapScheduler
 from tqdm import tqdm
 from collections import defaultdict
@@ -218,7 +218,6 @@ class Experiment(object):
 	
 	def eval_loop(self, epoch, phase):
 		total_loss = 0.0
-		correct = 0; total = 0;
 		predictions = defaultdict(list)
 		labels = defaultdict(list)
 		eval_loader = tqdm(self.loaders[phase], desc=f'EVALUATION Epoch {epoch}', total=(len(self.loaders[phase].dataset)//self.batch_size + 1))
@@ -232,15 +231,15 @@ class Experiment(object):
 				loss = F.cross_entropy(outputs, targets)
 				total_loss += loss.item()
 
-				preds = torch.max(outputs, 1)[1].cpu()
+				preds = F.softmax(outputs, dim=1)
 
 				for i in range(len(ids)):
-					predictions[ids[i].item()].append(preds[i].item())
+					predictions[ids[i].item()].append(preds[i].cpu())
 					labels[ids[i].item()].append(targets[i].item())
 		
 		predicted = []; true = []
-		for idx in predictions:
-			predicted.append( min(predictions[idx]) )
+		for idx in sorted(predictions.keys()):
+			predicted.append( np.argmax(torch.stack(predictions[idx], dim=0).numpy().mean(axis=0)) )
 			true.append( min(labels[idx]) )
 		predicted = np.array(predicted)
 		true = np.array(true)
@@ -289,9 +288,9 @@ class Experiment(object):
 			self.save_model(snaps_dir, self.model_str + '-last.model')
 	
 	def split_run(self):
-		for split_num, (train, test) in enumerate(self.kfold.split(self.valuo_data.idxs, self.valuo_data.label)):
+		for split_num, (train, test) in enumerate(self.kfold.split(self.sound_data.idxs, self.sound_data.df.target)):
 			logging.info(2*'#' + f" Running split {split_num+1}/{self.n_splits} " + 2*'#')
-			self.valuo_data.reset_index(train, test)
+			self.sound_data.reset_index(train, test)
 			self.loaders = self.get_loaders()
 
 			if split_num > 0:
@@ -356,10 +355,12 @@ if __name__ == '__main__':
 	parser.add_argument('--no_snaps', action='store_true', help='Flag whether to prevent from storing snapshots.')
 	# Debug limit to decrease size of dataset
 	parser.add_argument('--debug_limit', type=int, default=None, help='Debug limit to decrease size of dataset.')
-	# Select device "cuda" for GPU or "cpu"
-	parser.add_argument('--device', type=str, default=("cuda" if torch.cuda.is_available() else "cpu"), choices=['cuda', 'cpu'], help='Device to use. Choose "cuda" for GPU or "cpu".')
 	# Seed
 	parser.add_argument('-s', '--seed', type=int, default=42, help='Random state seed.')
+	# Number of processes
+	parser.add_argument('-nw', '--num_workers', type=int, default=6, help='Number of processes (workers).')
+	# Select device "cuda" for GPU or "cpu"
+	parser.add_argument('--device', type=str, default=("cuda" if torch.cuda.is_available() else "cpu"), choices=['cuda', 'cpu'], help='Device to use. Choose "cuda" for GPU or "cpu".')
 	# Select GPU device
 	parser.add_argument('--gpu_device', type=int, default=None, help='ID of a GPU to use when multiple GPUs are available.')
 	# Use multiple GPUs?
@@ -371,5 +372,5 @@ if __name__ == '__main__':
 
 	exp = Experiment(args.model, args.batch_size, args.epochs, args.learning_rate, use_mixup=(not args.no_mixup),
 	mixup_alpha=args.mixup_alpha, conv_fixed=args.conv_fixed, weighted=args.weighted, cross_validate=args.cross_validate, schedule=args.scheduler,
-	seed=args.seed, no_snaps=args.no_snaps, debug_limit=args.debug_limit, multi_gpu=args.multi_gpu)
+	seed=args.seed, no_snaps=args.no_snaps, debug_limit=args.debug_limit, num_processes=args.num_workers, multi_gpu=args.multi_gpu)
 	exp.run()
