@@ -115,7 +115,7 @@ class Experiment(object):
 				self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=self.step_size, gamma=self.gamma)
 			elif self.schedule.lower() == 'snap':
 				logger.info("Scheduling learning rate every using Snap Scheduler")
-				self.scheduler = SnapScheduler(self.optimizer, num_epochs=self.epochs, num_snaps=4, init_lr=self.lr)
+				self.scheduler = SnapScheduler(self.optimizer, num_epochs=self.epochs, num_snaps=3, init_lr=self.lr)
 			elif self.schedule.lower() == 'exponential':
 				logger.info(f"Scheduling learning rate exponentially with gamma = {self.gamma}")
 				scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=self.gamma)
@@ -251,7 +251,10 @@ class Experiment(object):
 		self.stats[phase]['recall'].append(recall)
 	
 	def save_model(self, snaps_dir, snap_fname):
-		torch.save(self.model, os.path.join(snaps_dir, snap_fname))
+		if self.multi_gpu:
+			torch.save(self.model.module, os.path.join(snaps_dir, snap_fname))
+		else:
+			torch.save(self.model, os.path.join(snaps_dir, snap_fname))
 	
 	def single_run(self, run_fname='run'):
 		self.stats = deepcopy(self.emptystats)
