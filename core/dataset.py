@@ -47,7 +47,7 @@ def cache_test_spectrogram(filename: str):
 def load_and_slice(entry: dict):
 	spec = utils.load_array(entry['fpath'])
 	sample = []
-	for sample_slice in spectrum.sliding_window_split(spec):
+	for sample_slice in spectrum.sliding_window_split(spec, split_width=spec.shape[0]):
 		slice_entry = deepcopy(entry)
 		pad = sample_slice.shape[0] - sample_slice.shape[1]
 		sample_slice = cv2.copyMakeBorder(sample_slice, 0, 0, pad, 0, cv2.BORDER_WRAP)
@@ -64,7 +64,7 @@ def load_and_slice_test(entry: dict):
 		sample_slice = cv2.copyMakeBorder(spec, 0, 0, pad, 0, cv2.BORDER_WRAP)
 		entry['data'] = np.float32(np.expand_dims(sample_slice, axis=-1))
 		return [entry]
-	for sample_slice in spectrum.sliding_window_split(spec):
+	for sample_slice in spectrum.sliding_window_split(spec, split_width=spec.shape[0]):
 		slice_entry = deepcopy(entry)
 		pad = sample_slice.shape[0] - sample_slice.shape[1]
 		sample_slice = cv2.copyMakeBorder(sample_slice, 0, 0, pad, 0, cv2.BORDER_WRAP)
@@ -74,9 +74,9 @@ def load_and_slice_test(entry: dict):
 
 
 class SoundData(object):
-	def __init__(self, test_size=0.2, num_processes=8, seed=42):
+	def __init__(self, cache_prefix='mel256', test_size=0.2, num_processes=8, seed=42):
 		self.df = pd.read_csv(os.path.join(DATA_PATH, 'train.csv'))
-		self.cache_dir = os.path.join(DATA_PATH, 'cache', 'train')
+		self.cache_dir = os.path.join(DATA_PATH, 'cache', f'{cache_prefix}_train')
 		if not os.path.exists(self.cache_dir):
 			os.mkdir(self.cache_dir)
 		self.num_processes = num_processes
@@ -144,9 +144,9 @@ class Dset(thd.Dataset):
 
 
 class TestDset(thd.Dataset):
-	def __init__(self, num_processes=3, transform=None):
+	def __init__(self, cache_prefix='mel256', num_processes=3, transform=None):
 		self.data_dir = os.path.join(DATA_PATH, 'test')
-		self.cache_dir = os.path.join(DATA_PATH, 'cache', 'test')
+		self.cache_dir = os.path.join(DATA_PATH, 'cache', f'{cache_prefix}_test')
 		if not os.path.exists(self.cache_dir):
 			os.mkdir(self.cache_dir)
 		self.h5fs = sorted(os.listdir(self.cache_dir))
