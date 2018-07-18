@@ -11,6 +11,7 @@ import core.logger as log
 from sklearn.model_selection import KFold, StratifiedKFold
 from model.densenet import *
 from model.resnet import *
+from model.senet import *
 from core.mixup import Mixup, OneHotCrossEntropy
 from core.snap_scheduler import SnapScheduler
 from tqdm import tqdm
@@ -32,12 +33,17 @@ pretrained_models = {
     'densenet169': densenet169,
     'densenet201': densenet201,
     'densenet161': densenet161,
+	'senet18': se_resnet18,
+    'senet34': se_resnet34,
+    'senet50': se_resnet50,
+    'senet101': se_resnet101,
+    'senet152': se_resnet152,
 }
 
 class Experiment(object):
 	def __init__(self, model: str, batch_size: int, epochs: int, lr: float, eval_interval: int=1,
 	optimizer: str='sgd', schedule: str=None, step_size: int=10, gamma: float=0.5, use_mixup: bool=True,
-	mixup_alpha: float=0.5, conv_fixed: bool=False, weighted: bool=False, cross_validate: bool=False,
+	mixup_alpha: float=0.5, weighted: bool=False, cross_validate: bool=False,
 	n_splits: int=5, seed: int=42, metric: str='accuracy', no_snaps: bool=False, debug_limit: int=None,
 	device: str=('cuda' if torch.cuda.is_available() else 'cpu'), num_processes: int=8, multi_gpu: bool=False, **kwargs):
 		self.set_seed(seed)
@@ -52,7 +58,6 @@ class Experiment(object):
 		self.gamma = gamma
 		self.optimizer_str = optimizer
 		self.use_mixup = use_mixup
-		self.conv_fixed = conv_fixed
 		self.weighted = weighted
 		self.cross_validate = cross_validate
 		self.n_splits = n_splits
@@ -99,15 +104,9 @@ class Experiment(object):
 		self.model = self.load_model()
 		
 		if optimizer == 'sgd':
-			if self.conv_fixed:
-				self.optimizer = optim.SGD(self.model.fc.parameters(), lr=self.lr, momentum=0.9)
-			else:
-				self.optimizer = optim.SGD(self.model.parameters(), lr=self.lr, momentum=0.9)
+			self.optimizer = optim.SGD(self.model.parameters(), lr=self.lr, momentum=0.9)
 		elif optimizer == 'adam':
-			if self.conv_fixed:
-				self.optimizer = optim.Adam(self.model.fc.parameters(), lr=self.lr, amsgrad=False)
-			else:
-				self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr, amsgrad=False)
+			self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr, amsgrad=False)
 		
 		if self.schedule is not None:
 			if self.schedule.lower() == 'step':
@@ -153,21 +152,19 @@ class Experiment(object):
 				'test': thd.DataLoader(self.testset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_processes)}
 		
 	def load_model(self):
-		model = pretrained_models[self.model_str](pretrained=True)
-		if self.conv_fixed:
-			logger.warning("Fixing weights")
-			for param in model.parameters():
-				param.requires_grad = False
-
 		classifier = lambda num_features: nn.Linear(num_features, self.num_classes)
 
 		if self.model_str.startswith('densenet'):
+			model = pretrained_models[self.model_str](pretrained=True)
 			num_ftrs = model.classifier.in_features
 			model.classifier = classifier(num_ftrs)
 		elif self.model_str.startswith('resnet'):
+			model = pretrained_models[self.model_str](pretrained=True)
 			num_ftrs = model.fc.in_features
 			model.avgpool = torch.nn.AdaptiveAvgPool2d(1)
 			model.fc = classifier(num_ftrs)
+		elif self.model_str.startswith('senet'):
+			model = pretrained_models[self.model_str](num_classes=self.num_classes)
 		else:
 			raise ValueError(f'Invalid model string. Received {self.model_str}.')
 		
@@ -303,15 +300,9 @@ class Experiment(object):
 				self.model = self.load_model()
 				
 				if self.optimizer_str == 'sgd':
-					if self.conv_fixed:
-						self.optimizer = optim.SGD(self.model.fc.parameters(), lr=self.lr, momentum=0.9)
-					else:
-						self.optimizer = optim.SGD(self.model.parameters(), lr=self.lr, momentum=0.9)
+					self.optimizer = optim.SGD(self.model.parameters(), lr=self.lr, momentum=0.9)
 				elif self.optimizer_str == 'adam':
-					if self.conv_fixed:
-						self.optimizer = optim.Adam(self.model.fc.parameters(), lr=self.lr, amsgrad=False)
-					else:
-						self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr, amsgrad=False)
+					self.optimizer = optim.Adam(self.model.parameters(), lr=self.lr, amsgrad=False)
 			
 			self.single_run(run_fname=f'run-{split_num}')
 	
@@ -346,16 +337,14 @@ if __name__ == '__main__':
 	parser.add_argument('--gamma', type=float, default=0.5, help='Gamma argument for scheduler (only applies to step and exponential).')
 	# Prevent from using mixup
 	parser.add_argument('--no_mixup', action='store_true', help='Flag whether to use mixup.')
-	# Fix weights of convolutional layers
-	parser.add_argument('--conv_fixed', action='store_true', help='Flag whether to fix weights of convolutional layers.')
-	# Weight classes to tackle inbalance
-	parser.add_argument('-w', '--weighted', action='store_true', help='Flag whether to weight classes.')
 	# Use cross validation
 	parser.add_argument('-cv', '--cross_validate', action='store_true', help='Flag whether to use cross validation.')
 	# Alpha parameter for Mixup's Beta distribution
 	parser.add_argument('-alpha', '--mixup_alpha', type=float, default=0.8, help="Alpha parameter for Mixup's Beta distribution.")
 	# Prevent from storing snapshots
 	parser.add_argument('--no_snaps', action='store_true', help='Flag whether to prevent from storing snapshots.')
+	# Evaulation interval
+	parser.add_argument('--eval_interval', type=int, default=1, help='How often to run evaluation.')
 	# Debug limit to decrease size of dataset
 	parser.add_argument('--debug_limit', type=int, default=None, help='Debug limit to decrease size of dataset.')
 	# Seed
@@ -373,7 +362,7 @@ if __name__ == '__main__':
 	if args.gpu_device is not None:
 		torch.cuda.set_device(args.gpu_device)
 
-	exp = Experiment(args.model, args.batch_size, args.epochs, args.learning_rate, use_mixup=(not args.no_mixup),
-	mixup_alpha=args.mixup_alpha, conv_fixed=args.conv_fixed, weighted=args.weighted, cross_validate=args.cross_validate, schedule=args.scheduler,
+	exp = Experiment(args.model, args.batch_size, args.epochs, args.learning_rate, eval_interval= args.eval_interval, use_mixup=(not args.no_mixup),
+	mixup_alpha=args.mixup_alpha, cross_validate=args.cross_validate, schedule=args.scheduler,
 	seed=args.seed, no_snaps=args.no_snaps, debug_limit=args.debug_limit, num_processes=args.num_workers, multi_gpu=args.multi_gpu)
 	exp.run()
