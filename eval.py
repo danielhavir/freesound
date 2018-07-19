@@ -19,6 +19,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('model', type=str, help="Model to run.")
 # Checkpoint directory
 parser.add_argument('-dir', '--ckpt_dir', type=str, choices=os.listdir(CKPT_DIR), default=sorted(os.listdir(CKPT_DIR))[-1], help="Checkpoints dir.")
+# Type of evaluation
+parser.add_argument('-t', '--type', type=str, choices=['all', 'last'], default='last', help="Type of experiment evaluation.")
 # Batch size
 parser.add_argument('-bs', '--batch_size', type=int, default=64, help='Batch size.')
 # Number of processes
@@ -63,9 +65,15 @@ def eval_model(loader, model, model_num):
 
 # List of dictionaries
 results = []
-for model_num, run_dir in enumerate(runs):
-	model = torch.load(os.path.join(run_dir, args.model + '-last.model'))
-	results.append(eval_model(testloader, model, model_num))
+for split_num, run_dir in enumerate(runs):
+	if args.type == 'last':
+		model = torch.load(os.path.join(run_dir, args.model + '-last.model'))
+		results.append(eval_model(testloader, model, split_num))
+	elif args.type == 'all':
+		for model_num, mname in enumerate(os.listdir(run_dir)):
+			if mname.endswith('.model'):
+				model = torch.load(os.path.join(run_dir, mname))
+				results.append(eval_model(testloader, model, f'{split_num} / {model_num}'))
 
 # Dictionary of lists / np.arrays
 results = {k: np.array([dic[k] for dic in results]) for k in results[0]}
@@ -90,4 +98,4 @@ for fname in ['0b0427e2.wav', '6ea0099f.wav', 'b39975f5.wav']:
 	subm.loc[subm.shape[0]-1, 'label'] = 'Laughter Hi-Hat Flute'
 if not subm.shape[0] == 9400:
 	import pdb; pdb.set_trace()
-subm.to_csv(os.path.join(RES_DIR, 'submission.csv'), index=False)
+subm.to_csv(os.path.join(RES_DIR, f'submission-{args.type}.csv'), index=False)

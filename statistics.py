@@ -21,6 +21,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('model', type=str, help="Model to run.")
 # Checkpoint directory
 parser.add_argument('-dir', '--ckpt_dir', type=str, choices=os.listdir(CKPT_DIR), default=sorted(os.listdir(CKPT_DIR))[-1], help="Checkpoints dir.")
+# Type of evaluation
+parser.add_argument('-t', '--type', type=str, choices=['all', 'last'], default='last', help="Type of experiment evaluation.")
 # Batch size
 parser.add_argument('-bs', '--batch_size', type=int, default=64, help='Batch size.')
 # Number of processes
@@ -80,7 +82,13 @@ for split_num, (train, test) in enumerate(kfold.split(sound_data.idxs, sound_dat
 	train_df, test_df = sound_data.get_train_test_split()
 	trainset = cd.Dset(train_df, args.num_workers, transform=cd.data_transforms['train'], phase='train')
 	testset = cd.Dset(test_df, args.num_workers, transform=cd.data_transforms['test'], phase='test')
-	model = torch.load(os.path.join(runs[split_num], args.model + '-last.model'))
 	loaders = {'train': thd.DataLoader(trainset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers),
 	'test': thd.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)}
-	for phase in ['train', 'test']: eval_model(loaders[phase], model, split_num, phase)
+	if args.type == 'last':
+		model = torch.load(os.path.join(runs[split_num], args.model + '-last.model'))
+		eval_model(loaders['test'], model, split_num, 'test')
+	elif args.type == 'all':
+		for model_num, mname in enumerate(os.listdir(runs[split_num])):
+			if mname.endswith('.model'):
+				model = torch.load(os.path.join(runs[split_num], mname))
+				eval_model(loaders['test'], model, f'{split_num} / {model_num}', 'test')
