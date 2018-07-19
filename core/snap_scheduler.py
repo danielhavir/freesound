@@ -3,7 +3,7 @@ from torch.optim.lr_scheduler import _LRScheduler
 
 
 class SnapScheduler(_LRScheduler):
-    def __init__(self, optimizer, num_epochs, num_snaps, init_lr, last_epoch=-1):
+    def __init__(self, optimizer, num_epochs, num_snaps, init_lr, last_epoch=-1, print_fc=print):
         """
         Args:
             optimizer (Optimizer): Wrapped optimizer.
@@ -16,6 +16,7 @@ class SnapScheduler(_LRScheduler):
         self.M = num_snaps
         self.init_lr = init_lr
         self.__new_lr = init_lr
+        self.print_fc = print_fc
         super(SnapScheduler, self).__init__(optimizer, last_epoch)
     
     def get_lr(self):
@@ -26,7 +27,7 @@ class SnapScheduler(_LRScheduler):
         """
         _inner = math.pi * (self.last_epoch % (self.T // self.M)) / (self.T // self.M)
         self.__new_lr = self.init_lr / 2 * (math.cos(_inner) + 1)
-        print("New learning rate:", self.__new_lr)
+        self.print_fc(f"New learning rate: {self.__new_lr}")
         return [self.__new_lr for _ in self.base_lrs]
     
     def save_model(self, epoch) -> bool:

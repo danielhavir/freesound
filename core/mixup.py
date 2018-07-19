@@ -3,9 +3,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class Mixup(object):
-    def __init__(self, alpha, device: torch.device, mix_triplets=False):
-        self.alpha = alpha
-        self.beta = torch.distributions.Beta(self.alpha, self.alpha)
+    def __init__(self, alpha, device: torch.device, beta=None):
+        self.alpha1 = alpha
+        self.alpha2 = beta if beta is not None else alpha
+        self.beta = torch.distributions.Beta(self.alpha2, self.alpha1)
         self.device = device
         self.one = torch.tensor(1.).to(device)
     

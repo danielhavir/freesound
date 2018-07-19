@@ -19,13 +19,21 @@ import cv2
 DATA_PATH = os.path.join(os.getcwd(), 'data')
 
 data_transforms = {
-	'train': transforms.Compose([
+	'mel256_train': transforms.Compose([
 		transforms.ToTensor(),
 		transforms.Normalize([-2.07057395], [2.12761937])
 	]),
-	'test': transforms.Compose([
+	'mel256_test': transforms.Compose([
 		transforms.ToTensor(),
 		transforms.Normalize([-2.07057395], [2.12761937])
+	]),
+	'wavelet_train': transforms.Compose([
+		transforms.ToTensor(),
+		transforms.Normalize([-7.5517883], [7.686689])
+	]),
+	'wavelet_test': transforms.Compose([
+		transforms.ToTensor(),
+		transforms.Normalize([-7.5517883], [7.686689])
 	])
 }
 

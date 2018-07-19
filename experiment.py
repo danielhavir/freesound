@@ -41,17 +41,18 @@ pretrained_models = {
 }
 
 class Experiment(object):
-	def __init__(self, model: str, batch_size: int, epochs: int, lr: float, eval_interval: int=1,
-	optimizer: str='sgd', schedule: str=None, step_size: int=10, gamma: float=0.5, use_mixup: bool=True,
-	mixup_alpha: float=0.5, weighted: bool=False, cross_validate: bool=False,
+	def __init__(self, model: str, batch_size: int, epochs: int, lr: float, cache_prefix: str='mel256',
+	eval_interval: int=1, optimizer: str='sgd', schedule: str=None, step_size: int=10, gamma: float=0.5,
+	use_mixup: bool=True, mixup_alpha: float=0.5, weighted: bool=False, cross_validate: bool=False,
 	n_splits: int=5, seed: int=42, metric: str='accuracy', no_snaps: bool=False, debug_limit: int=None,
 	device: str=('cuda' if torch.cuda.is_available() else 'cpu'), num_processes: int=8, multi_gpu: bool=False, **kwargs):
 		self.set_seed(seed)
 		self.model_str = model
-		logger.info(f"Starting experiment with {self.model_str.capitalize()}")
+		logger.info(f"Starting experiment with {self.model_str.capitalize()} on {cache_prefix.capitalize()}")
 		self.batch_size = batch_size
 		self.epochs = epochs
 		self.lr = lr
+		self.cache_prefix = cache_prefix
 		self.eval_interval = eval_interval
 		self.schedule = schedule
 		self.step_size = step_size
@@ -68,13 +69,13 @@ class Experiment(object):
 		self.num_processes = num_processes
 		self.multi_gpu = multi_gpu
 
-		self.sound_data = cd.SoundData(num_processes=self.num_processes, seed=seed)
+		self.sound_data = cd.SoundData(cache_prefix=self.cache_prefix, num_processes=self.num_processes, seed=seed)
 		self.num_classes = self.sound_data.num_classes
 
 		if not self.cross_validate:
 			self.loaders = self.get_loaders()
 		
-		self.initial_best_threshold = 0.8
+		self.initial_best_threshold = 0.8+1
 		self.emptystats = {
 			'train': {
 				'loss': [],
@@ -113,8 +114,8 @@ class Experiment(object):
 				logger.info(f"Scheduling learning rate every {self.step_size} with gamma = {self.gamma}")
 				self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=self.step_size, gamma=self.gamma)
 			elif self.schedule.lower() == 'snap':
-				logger.info("Scheduling learning rate every using Snap Scheduler")
-				self.scheduler = SnapScheduler(self.optimizer, num_epochs=self.epochs, num_snaps=3, init_lr=self.lr)
+				logger.info("Scheduling learning rate using Snap Scheduler")
+				self.scheduler = SnapScheduler(self.optimizer, num_epochs=self.epochs, num_snaps=3, init_lr=self.lr, print_fc=logger.info)
 			elif self.schedule.lower() == 'exponential':
 				logger.info(f"Scheduling learning rate exponentially with gamma = {self.gamma}")
 				scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=self.gamma)
@@ -145,8 +146,8 @@ class Experiment(object):
 			test_df = test_df.loc[:self.debug_limit]
 
 		logging.info(f"Loading spectrograms")
-		self.trainset = cd.Dset(train_df, self.num_processes, transform=cd.data_transforms['train'], phase='train')
-		self.testset = cd.Dset(test_df, self.num_processes, transform=cd.data_transforms['test'], phase='test')
+		self.trainset = cd.Dset(train_df, self.num_processes, transform=cd.data_transforms[f'{self.cache_prefix}_train'], phase='train')
+		self.testset = cd.Dset(test_df, self.num_processes, transform=cd.data_transforms[f'{self.cache_prefix}_test'], phase='test')
 
 		return {'train': thd.DataLoader(self.trainset, batch_size=self.batch_size, shuffle=True, num_workers=self.num_processes),
 				'test': thd.DataLoader(self.testset, batch_size=self.batch_size, shuffle=False, num_workers=self.num_processes)}
@@ -280,6 +281,10 @@ class Experiment(object):
 					if not self.no_snaps and self.scheduler.save_model(epoch):
 						self.save_model(snaps_dir, self.model_str + f'snap-{epoch}.model')
 				self.scheduler.step()
+			
+			if epoch == 20 and mixup.alpha < 1:
+				logging.info(f"Increasing Mixup alpha to {mixup.alpha*10}")
+				self.mixup = Mixup(mixup.alpha*10, self.device)
 		
 		stats_fname = 'stats-' + run_fname + '.json'
 		log.write_json(self.stats, filepath=os.path.join(RUN_DIR, stats_fname))
@@ -323,6 +328,8 @@ if __name__ == '__main__':
 
 	# Pretrained model
 	parser.add_argument('model', type=str, choices=pretrained_models.keys(), help="Model to run.")
+	# Cache prefix
+	parser.add_argument('cache_prefix', nargs='?', type=str, choices=['mel256', 'wavelet'], default='mel256', help="Mel spectrogram or wavelets.")
 	# Batch size
 	parser.add_argument('-bs', '--batch_size', type=int, default=64, help='Batch size.')
 	# Epochs
@@ -362,7 +369,7 @@ if __name__ == '__main__':
 	if args.gpu_device is not None:
 		torch.cuda.set_device(args.gpu_device)
 
-	exp = Experiment(args.model, args.batch_size, args.epochs, args.learning_rate, eval_interval= args.eval_interval, use_mixup=(not args.no_mixup),
-	mixup_alpha=args.mixup_alpha, cross_validate=args.cross_validate, schedule=args.scheduler,
+	exp = Experiment(args.model, args.batch_size, args.epochs, args.learning_rate, args.cache_prefix, eval_interval= args.eval_interval,
+	use_mixup=(not args.no_mixup), mixup_alpha=args.mixup_alpha, cross_validate=args.cross_validate, schedule=args.scheduler,
 	seed=args.seed, no_snaps=args.no_snaps, debug_limit=args.debug_limit, num_processes=args.num_workers, multi_gpu=args.multi_gpu)
 	exp.run()
