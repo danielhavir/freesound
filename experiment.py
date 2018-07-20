@@ -281,10 +281,6 @@ class Experiment(object):
 					if not self.no_snaps and self.scheduler.save_model(epoch):
 						self.save_model(snaps_dir, self.model_str + f'snap-{epoch}.model')
 				self.scheduler.step()
-			
-			if epoch == 20 and mixup.alpha < 1:
-				logging.info(f"Increasing Mixup alpha to {mixup.alpha*10}")
-				self.mixup = Mixup(mixup.alpha*10, self.device)
 		
 		stats_fname = 'stats-' + run_fname + '.json'
 		log.write_json(self.stats, filepath=os.path.join(RUN_DIR, stats_fname))

@@ -15,12 +15,14 @@ CKPT_DIR = os.path.join('checkpoints')
 # Collect arguments (if any)
 parser = argparse.ArgumentParser()
 
-# Pretrained model
-parser.add_argument('model', type=str, help="Model to run.")
+# Cache prefix
+parser.add_argument('cache_prefix', nargs='?', type=str, choices=['mel256', 'wavelet'], default='mel256', help="Mel spectrogram or wavelets.")
 # Checkpoint directory
 parser.add_argument('-dir', '--ckpt_dir', type=str, choices=os.listdir(CKPT_DIR), default=sorted(os.listdir(CKPT_DIR))[-1], help="Checkpoints dir.")
+# Checkpoint directory
+parser.add_argument('-dir2', '--ckpt_dir2', type=str, choices=os.listdir(CKPT_DIR), default=sorted(os.listdir(CKPT_DIR))[-2], help="Checkpoints dir.")
 # Type of evaluation
-parser.add_argument('-t', '--type', type=str, choices=['all', 'last'], default='last', help="Type of experiment evaluation.")
+parser.add_argument('-t', '--type', type=str, choices=['all', 'last', 'combine-last', 'combine-all'], default='last', help="Type of experiment evaluation.")
 # Batch size
 parser.add_argument('-bs', '--batch_size', type=int, default=64, help='Batch size.')
 # Number of processes
@@ -37,12 +39,16 @@ print(f"Loading snapshots from experiment: {args.ckpt_dir}")
 
 idx2label = cd.SoundData().idx2label
 #sound_data = cd.SoundData(phase='test', num_processes=args.num_workers)
-testset = cd.TestDset(num_processes=args.num_workers, transform=cd.data_transforms['test'])
+testset = cd.TestDset(num_processes=args.num_workers, transform=cd.data_transforms[f'{args.cache_prefix}_test'])
 testloader = thd.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
 device = torch.device(args.device)
 RES_DIR = os.path.join(CKPT_DIR, args.ckpt_dir)
 snaps_dir = os.path.join(RES_DIR, 'snaps')
 runs = [os.path.join(snaps_dir, run_name) for run_name in sorted(os.listdir(snaps_dir))]
+if args.type.startswith('combine'):
+	RES_DIR2 = os.path.join(CKPT_DIR, args.ckpt_dir2)
+	snaps_dir2 = os.path.join(RES_DIR2, 'snaps')
+	runs += [os.path.join(snaps_dir2, run_name) for run_name in sorted(os.listdir(snaps_dir2))]
 is_ensemble = len(runs) > 1
 
 def eval_model(loader, model, model_num):
@@ -66,13 +72,21 @@ def eval_model(loader, model, model_num):
 # List of dictionaries
 results = []
 for split_num, run_dir in enumerate(runs):
-	if args.type == 'last':
-		model = torch.load(os.path.join(run_dir, args.model + '-last.model'))
-		results.append(eval_model(testloader, model, split_num))
-	elif args.type == 'all':
+	if args.type.endswith('last'):
+		for model_num, mname in enumerate(os.listdir(run_dir)):
+			if mname.endswith('last.model'):
+				print(f"Evaluating model {mname}")
+				model = torch.load(os.path.join(run_dir, mname))
+				if args.multi_gpu:
+					model = nn.DataParallel(model)
+				results.append(eval_model(testloader, model, split_num))
+	elif args.type.endswith('all'):
 		for model_num, mname in enumerate(os.listdir(run_dir)):
 			if mname.endswith('.model'):
+				print(f"Evaluating model {mname}")
 				model = torch.load(os.path.join(run_dir, mname))
+				if args.multi_gpu:
+					model = nn.DataParallel(model)
 				results.append(eval_model(testloader, model, f'{split_num} / {model_num}'))
 
 # Dictionary of lists / np.arrays

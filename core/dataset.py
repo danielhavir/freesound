@@ -39,14 +39,14 @@ data_transforms = {
 
 
 def cache_spectrogram(filename: str):
-	pcm = mf.read_wav(os.path.join('data', 'train', filename))
+	pcm = mf.read_wav(os.path.join('data', 'train', filename), target_sample_rate=44100)
 	spec = spectrum.mel(pcm)
 	name, file_extension = os.path.splitext(filename)
 	utils.save_array(spec, os.path.join('data', 'cache', 'train', name + '.h5'))
 
 
 def cache_test_spectrogram(filename: str):
-	pcm = mf.read_wav(os.path.join('data', 'test', filename))
+	pcm = mf.read_wav(os.path.join('data', 'test', filename), target_sample_rate=44100)
 	spec = spectrum.mel(pcm)
 	name, file_extension = os.path.splitext(filename)
 	utils.save_array(spec, os.path.join('data', 'cache', 'test', name + '.h5'))
@@ -193,7 +193,7 @@ class TestDset(thd.Dataset):
 if __name__ == '__main__':
 	from time import time
 	t0 = time()
-	sound_data = SoundData(phase='test', num_processes=2)
+	#sound_data = SoundData(num_processes=2)
 	#train_df, test_df = sound_data.get_train_test_split()
 	#trainset = Dset(train_df, num_processes=6, transform=data_transforms['train'])
 	#valset = Dset(test_df, num_processes=6, transform=data_transforms['test'])
