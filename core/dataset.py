@@ -34,6 +34,14 @@ data_transforms = {
 	'wavelet_test': transforms.Compose([
 		transforms.ToTensor(),
 		transforms.Normalize([-7.5517883], [7.686689])
+	]),
+	'44mel256_train': transforms.Compose([
+		transforms.ToTensor(),
+		transforms.Normalize([-2.44529629], [1.96563387])
+	]),
+	'44mel256_test': transforms.Compose([
+		transforms.ToTensor(),
+		transforms.Normalize([-2.44529629], [1.96563387])
 	])
 }
 
@@ -42,7 +50,7 @@ def cache_spectrogram(filename: str):
 	pcm = mf.read_wav(os.path.join('data', 'train', filename), target_sample_rate=44100)
 	spec = spectrum.mel(pcm)
 	name, file_extension = os.path.splitext(filename)
-	utils.save_array(spec, os.path.join('data', 'cache', 'train', name + '.h5'))
+	utils.save_array(spec, os.path.join('data', 'cache', '44mel256_train', name + '.h5'))
 
 
 def cache_test_spectrogram(filename: str):
@@ -101,7 +109,7 @@ class SoundData(object):
 
 	def cache_samples(self):
 		if not os.listdir(self.cache_dir):
-			print("Caching...")
+			print(f"Caching in {self.num_processes} processes...")
 			pool = mp.Pool(processes=self.num_processes)
 			pool.map(cache_spectrogram, (self.df.fname).tolist())
 			print("DATASET cached")
@@ -193,10 +201,11 @@ class TestDset(thd.Dataset):
 if __name__ == '__main__':
 	from time import time
 	t0 = time()
-	#sound_data = SoundData(num_processes=2)
+	sound_data = SoundData(cache_prefix='44mel256', num_processes=6)
 	#train_df, test_df = sound_data.get_train_test_split()
-	#trainset = Dset(train_df, num_processes=6, transform=data_transforms['train'])
+	trainset = Dset(sound_data.df, num_processes=6, transform=data_transforms['44mel256_train'])
 	#valset = Dset(test_df, num_processes=6, transform=data_transforms['test'])
-	testset = TestDset(num_processes=2, transform=data_transforms['test'])
+	#testset = TestDset(num_processes=2, transform=data_transforms['test'])
 	print(time() - t0)
-	import pdb; pdb.set_trace()
+	print(len(os.listdir(sound_data.cache_dir)))
+	print(trainset[0][0].size())

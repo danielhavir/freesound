@@ -21,6 +21,8 @@ parser.add_argument('cache_prefix', nargs='?', type=str, choices=['mel256', 'wav
 parser.add_argument('-dir', '--ckpt_dir', type=str, choices=os.listdir(CKPT_DIR), default=sorted(os.listdir(CKPT_DIR))[-1], help="Checkpoints dir.")
 # Checkpoint directory
 parser.add_argument('-dir2', '--ckpt_dir2', type=str, choices=os.listdir(CKPT_DIR), default=sorted(os.listdir(CKPT_DIR))[-2], help="Checkpoints dir.")
+# Cache prefix
+parser.add_argument('--cache_prefix2', type=str, choices=['mel256', 'wavelet'], default='mel256', help="Mel spectrogram or wavelets.")
 # Type of evaluation
 parser.add_argument('-t', '--type', type=str, choices=['all', 'last', 'combine-last', 'combine-all'], default='last', help="Type of experiment evaluation.")
 # Batch size
@@ -37,19 +39,23 @@ args = parser.parse_args()
 
 print(f"Loading snapshots from experiment: {args.ckpt_dir}")
 
-idx2label = cd.SoundData().idx2label
+idx2label = cd.SoundData(cache_prefix=args.cache_prefix).idx2label
 #sound_data = cd.SoundData(phase='test', num_processes=args.num_workers)
-testset = cd.TestDset(num_processes=args.num_workers, transform=cd.data_transforms[f'{args.cache_prefix}_test'])
+testset = cd.TestDset(cache_prefix=args.cache_prefix, num_processes=args.num_workers, transform=cd.data_transforms[f'{args.cache_prefix}_test'])
 testloader = thd.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
 device = torch.device(args.device)
 RES_DIR = os.path.join(CKPT_DIR, args.ckpt_dir)
 snaps_dir = os.path.join(RES_DIR, 'snaps')
 runs = [os.path.join(snaps_dir, run_name) for run_name in sorted(os.listdir(snaps_dir))]
+prefixes = [args.cache_prefix]*len(runs)
+active_prefix = args.cache_prefix
 if args.type.startswith('combine'):
 	RES_DIR2 = os.path.join(CKPT_DIR, args.ckpt_dir2)
 	snaps_dir2 = os.path.join(RES_DIR2, 'snaps')
 	runs += [os.path.join(snaps_dir2, run_name) for run_name in sorted(os.listdir(snaps_dir2))]
+	prefixes += ([args.cache_prefix2] * len(os.listdir(snaps_dir2)))
 is_ensemble = len(runs) > 1
+import pdb; pdb.set_trace()
 
 def eval_model(loader, model, model_num):
 	predictions = defaultdict(list)
@@ -79,6 +85,10 @@ for split_num, run_dir in enumerate(runs):
 				model = torch.load(os.path.join(run_dir, mname))
 				if args.multi_gpu:
 					model = nn.DataParallel(model)
+				if not prefixes[split_num] == active_prefix:
+					testset = cd.TestDset(cache_prefix=prefixes[split_num], num_processes=args.num_workers, transform=cd.data_transforms[f'{prefixes[split_num]}_test'])
+					testloader = thd.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
+					active_prefix = prefixes[split_num]
 				results.append(eval_model(testloader, model, split_num))
 	elif args.type.endswith('all'):
 		for model_num, mname in enumerate(os.listdir(run_dir)):
