@@ -9,6 +9,7 @@ import core.dataset as cd
 from tqdm import tqdm
 from collections import defaultdict
 import argparse
+import gc
 
 CKPT_DIR = os.path.join('checkpoints')
 
@@ -16,13 +17,21 @@ CKPT_DIR = os.path.join('checkpoints')
 parser = argparse.ArgumentParser()
 
 # Cache prefix
-parser.add_argument('cache_prefix', nargs='?', type=str, choices=['mel256', 'wavelet'], default='mel256', help="Mel spectrogram or wavelets.")
+parser.add_argument('cache_prefix', nargs='?', type=str, choices=['mel256', 'wavelet', '44mel256', '24mel256'], default='mel256', help="Mel spectrogram or wavelets.")
 # Checkpoint directory
 parser.add_argument('-dir', '--ckpt_dir', type=str, choices=os.listdir(CKPT_DIR), default=sorted(os.listdir(CKPT_DIR))[-1], help="Checkpoints dir.")
 # Checkpoint directory
-parser.add_argument('-dir2', '--ckpt_dir2', type=str, choices=os.listdir(CKPT_DIR), default=sorted(os.listdir(CKPT_DIR))[-2], help="Checkpoints dir.")
+parser.add_argument('-dir2', '--ckpt_dir2', type=str, choices=os.listdir(CKPT_DIR), default=sorted(os.listdir(CKPT_DIR))[-2], help="Second checkpoints dir.")
 # Cache prefix
-parser.add_argument('--cache_prefix2', type=str, choices=['mel256', 'wavelet'], default='mel256', help="Mel spectrogram or wavelets.")
+parser.add_argument('--cache_prefix2', type=str, choices=['mel256', 'wavelet', '44mel256'], default='mel256', help="Mel spectrogram or wavelets.")
+# Checkpoint directory
+parser.add_argument('-dir3', '--ckpt_dir3', type=str, choices=os.listdir(CKPT_DIR), default=None, help="Third checkpoints dir.")
+# Cache prefix
+parser.add_argument('--cache_prefix3', type=str, choices=['mel256', 'wavelet', '44mel256'], default='mel256', help="Mel spectrogram or wavelets.")
+# Checkpoint directory
+parser.add_argument('-dir4', '--ckpt_dir4', type=str, choices=os.listdir(CKPT_DIR), default=None, help="Fourth checkpoints dir.")
+# Cache prefix
+parser.add_argument('--cache_prefix4', type=str, choices=['mel256', 'wavelet', '44mel256'], default='mel256', help="Mel spectrogram or wavelets.")
 # Type of evaluation
 parser.add_argument('-t', '--type', type=str, choices=['all', 'last', 'combine-last', 'combine-all'], default='last', help="Type of experiment evaluation.")
 # Batch size
@@ -39,7 +48,7 @@ args = parser.parse_args()
 
 print(f"Loading snapshots from experiment: {args.ckpt_dir}")
 
-idx2label = cd.SoundData(cache_prefix=args.cache_prefix).idx2label
+idx2label = cd.SoundData(prevent_cache=True).idx2label
 #sound_data = cd.SoundData(phase='test', num_processes=args.num_workers)
 testset = cd.TestDset(cache_prefix=args.cache_prefix, num_processes=args.num_workers, transform=cd.data_transforms[f'{args.cache_prefix}_test'])
 testloader = thd.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
@@ -54,8 +63,17 @@ if args.type.startswith('combine'):
 	snaps_dir2 = os.path.join(RES_DIR2, 'snaps')
 	runs += [os.path.join(snaps_dir2, run_name) for run_name in sorted(os.listdir(snaps_dir2))]
 	prefixes += ([args.cache_prefix2] * len(os.listdir(snaps_dir2)))
+	if args.ckpt_dir3 is not None:
+		RES_DIR3 = os.path.join(CKPT_DIR, args.ckpt_dir3)
+		snaps_dir3 = os.path.join(RES_DIR3, 'snaps')
+		runs += [os.path.join(snaps_dir3, run_name) for run_name in sorted(os.listdir(snaps_dir3))]
+		prefixes += ([args.cache_prefix3] * len(os.listdir(snaps_dir3)))
+	if args.ckpt_dir4 is not None:
+		RES_DIR4 = os.path.join(CKPT_DIR, args.ckpt_dir4)
+		snaps_dir4 = os.path.join(RES_DIR4, 'snaps')
+		runs += [os.path.join(snaps_dir4, run_name) for run_name in sorted(os.listdir(snaps_dir4))]
+		prefixes += ([args.cache_prefix4] * len(os.listdir(snaps_dir4)))
 is_ensemble = len(runs) > 1
-import pdb; pdb.set_trace()
 
 def eval_model(loader, model, model_num):
 	predictions = defaultdict(list)
@@ -83,6 +101,7 @@ for split_num, run_dir in enumerate(runs):
 			if mname.endswith('last.model'):
 				print(f"Evaluating model {mname}")
 				model = torch.load(os.path.join(run_dir, mname))
+				model.eval()
 				if args.multi_gpu:
 					model = nn.DataParallel(model)
 				if not prefixes[split_num] == active_prefix:

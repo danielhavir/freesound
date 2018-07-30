@@ -42,22 +42,30 @@ data_transforms = {
 	'44mel256_test': transforms.Compose([
 		transforms.ToTensor(),
 		transforms.Normalize([-2.44529629], [1.96563387])
-	])
+	]),
+	'24mel256_train': transforms.Compose([
+		transforms.ToTensor(),
+		transforms.Normalize([-2.1824522], [2.08129025])
+	]),
+	'24mel256_test': transforms.Compose([
+		transforms.ToTensor(),
+		transforms.Normalize([-2.1824522], [2.08129025])
+	]),
 }
 
 
 def cache_spectrogram(filename: str):
-	pcm = mf.read_wav(os.path.join('data', 'train', filename), target_sample_rate=44100)
+	pcm = mf.read_wav(os.path.join('data', 'train', filename), target_sample_rate=24000)
 	spec = spectrum.mel(pcm)
 	name, file_extension = os.path.splitext(filename)
-	utils.save_array(spec, os.path.join('data', 'cache', '44mel256_train', name + '.h5'))
+	utils.save_array(spec, os.path.join('data', 'cache', '24mel256_train', name + '.h5'))
 
 
 def cache_test_spectrogram(filename: str):
-	pcm = mf.read_wav(os.path.join('data', 'test', filename), target_sample_rate=44100)
+	pcm = mf.read_wav(os.path.join('data', 'test', filename), target_sample_rate=24000)
 	spec = spectrum.mel(pcm)
 	name, file_extension = os.path.splitext(filename)
-	utils.save_array(spec, os.path.join('data', 'cache', 'test', name + '.h5'))
+	utils.save_array(spec, os.path.join('data', 'cache', '24mel256_test', name + '.h5'))
 
 
 def load_and_slice(entry: dict):
@@ -90,12 +98,13 @@ def load_and_slice_test(entry: dict):
 
 
 class SoundData(object):
-	def __init__(self, cache_prefix='mel256', test_size=0.2, num_processes=8, seed=42):
+	def __init__(self, cache_prefix='mel256', test_size=0.2, num_processes=8, seed=42, prevent_cache=False):
 		self.df = pd.read_csv(os.path.join(DATA_PATH, 'train.csv'))
 		self.cache_dir = os.path.join(DATA_PATH, 'cache', f'{cache_prefix}_train')
 		if not os.path.exists(self.cache_dir):
 			os.mkdir(self.cache_dir)
 		self.num_processes = num_processes
+		self.prevent_cache = prevent_cache
 		self.unique_label = np.sort(self.df.label.unique()).tolist()
 		self.label2idx = dict(zip(self.unique_label, range(len(self.unique_label))))
 		self.idx2label = dict(zip(range(len(self.unique_label)), self.unique_label))
@@ -108,7 +117,7 @@ class SoundData(object):
 		self.train_idx, self.test_idx = train_test_split(self.idxs, test_size=test_size, random_state=seed)
 
 	def cache_samples(self):
-		if not os.listdir(self.cache_dir):
+		if not os.listdir(self.cache_dir) and not self.prevent_cache:
 			print(f"Caching in {self.num_processes} processes...")
 			pool = mp.Pool(processes=self.num_processes)
 			pool.map(cache_spectrogram, (self.df.fname).tolist())
@@ -201,11 +210,11 @@ class TestDset(thd.Dataset):
 if __name__ == '__main__':
 	from time import time
 	t0 = time()
-	sound_data = SoundData(cache_prefix='44mel256', num_processes=6)
+	#sound_data = SoundData(cache_prefix='24mel256', num_processes=6)
 	#train_df, test_df = sound_data.get_train_test_split()
-	trainset = Dset(sound_data.df, num_processes=6, transform=data_transforms['44mel256_train'])
+	#trainset = Dset(sound_data.df, num_processes=6, transform=data_transforms['24mel256_train'])
 	#valset = Dset(test_df, num_processes=6, transform=data_transforms['test'])
-	#testset = TestDset(num_processes=2, transform=data_transforms['test'])
+	testset = TestDset(cache_prefix='24mel256', num_processes=4, transform=data_transforms['44mel256_test'])
 	print(time() - t0)
-	print(len(os.listdir(sound_data.cache_dir)))
-	print(trainset[0][0].size())
+	print(len(os.listdir(testset.cache_dir)))
+	print(testset[0][0].size())

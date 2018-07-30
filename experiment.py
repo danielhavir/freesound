@@ -19,6 +19,7 @@ from collections import defaultdict
 from copy import deepcopy
 import argparse
 import logging
+import gc
 
 logger = logging.getLogger()
 logger, RUN_DIR = log.setup_logger(logger)
@@ -42,7 +43,7 @@ pretrained_models = {
 
 class Experiment(object):
 	def __init__(self, model: str, batch_size: int, epochs: int, lr: float, cache_prefix: str='mel256',
-	eval_interval: int=1, optimizer: str='sgd', schedule: str=None, step_size: int=10, gamma: float=0.5,
+	eval_interval: int=1, optimizer: str='sgd', schedule: str=None, step_size: int=50, gamma: float=0.5,
 	use_mixup: bool=True, mixup_alpha: float=0.5, weighted: bool=False, cross_validate: bool=False,
 	n_splits: int=5, seed: int=42, metric: str='accuracy', no_snaps: bool=False, debug_limit: int=None,
 	device: str=('cuda' if torch.cuda.is_available() else 'cpu'), num_processes: int=8, multi_gpu: bool=False, **kwargs):
@@ -102,6 +103,7 @@ class Experiment(object):
 			self.eye = torch.eye(self.num_classes).to(self.device)
 			self.mixup = Mixup(mixup_alpha, self.device)
 		
+		#self.run_snaps_dir = os.path.join('checkpoints', '20180725-22:03:57', 'snaps')
 		self.model = self.load_model()
 		
 		if optimizer == 'sgd':
@@ -177,12 +179,26 @@ class Experiment(object):
 		
 		return model.to(self.device)
 	
+	def continue_model(self, run_snaps_dir, split_num):
+		model_path = os.path.join(run_snaps_dir, f'run-{split_num}', f'{self.model_str}-last.model')
+		logger.info(f'Loading model: {model_path}')
+		model = torch.load(model_path)
+		
+		logger.info(f"Num params: {sum([np.prod(p.size()) for p in model.parameters()])}")
+		logger.info(f"Num trainable params: {sum([np.prod(p.size()) for p in model.parameters() if p.requires_grad])}")
+
+		if self.multi_gpu:
+			model = nn.DataParallel(model)
+		
+		return model.to(self.device)
+	
 	def train_loop(self, epoch):
 		train_loader = tqdm(self.loaders['train'], desc=f'TRAIN Epoch {epoch}',
 							total=(len(self.trainset)//self.batch_size + 1))
 
 		total_loss = 0.0
 		correct = 0; total = 0;
+		self.model.train()
 		for inputs, targets, ids in train_loader:
 			inputs, targets = inputs.to(self.device).float(), targets.to(self.device)
 
@@ -219,7 +235,7 @@ class Experiment(object):
 		predictions = defaultdict(list)
 		labels = defaultdict(list)
 		eval_loader = tqdm(self.loaders[phase], desc=f'EVALUATION Epoch {epoch}', total=(len(self.loaders[phase].dataset)//self.batch_size + 1))
-
+		self.model.eval()
 		with torch.no_grad():
 			for inputs, targets, ids in eval_loader:
 				inputs, targets = inputs.to(self.device).float(), targets.to(self.device)
@@ -307,6 +323,13 @@ class Experiment(object):
 			
 			self.single_run(run_fname=f'run-{split_num}')
 	
+			del self.loaders
+			del self.trainset.data
+			del self.testset.data
+			del self.trainset
+			del self.testset
+			gc.collect()
+	
 	def run(self):
 		if self.no_snaps:
 			logger.info('Preventing from snapshots')
@@ -325,7 +348,7 @@ if __name__ == '__main__':
 	# Pretrained model
 	parser.add_argument('model', type=str, choices=pretrained_models.keys(), help="Model to run.")
 	# Cache prefix
-	parser.add_argument('cache_prefix', nargs='?', type=str, choices=['mel256', 'wavelet'], default='mel256', help="Mel spectrogram or wavelets.")
+	parser.add_argument('cache_prefix', nargs='?', type=str, choices=['mel256', 'wavelet', '44mel256', '24mel256'], default='mel256', help="Mel spectrogram or wavelets.")
 	# Batch size
 	parser.add_argument('-bs', '--batch_size', type=int, default=64, help='Batch size.')
 	# Epochs
@@ -366,6 +389,6 @@ if __name__ == '__main__':
 		torch.cuda.set_device(args.gpu_device)
 
 	exp = Experiment(args.model, args.batch_size, args.epochs, args.learning_rate, args.cache_prefix, eval_interval= args.eval_interval,
-	use_mixup=(not args.no_mixup), mixup_alpha=args.mixup_alpha, cross_validate=args.cross_validate, schedule=args.scheduler,
+	use_mixup=(not args.no_mixup), mixup_alpha=args.mixup_alpha, cross_validate=args.cross_validate, schedule=args.scheduler, gamma=args.gamma,
 	seed=args.seed, no_snaps=args.no_snaps, debug_limit=args.debug_limit, num_processes=args.num_workers, multi_gpu=args.multi_gpu)
 	exp.run()

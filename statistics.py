@@ -11,6 +11,7 @@ import core.eval_utils as evaluate
 from tqdm import tqdm
 from collections import defaultdict
 import argparse
+import gc
 
 CKPT_DIR = os.path.join('checkpoints')
 
@@ -19,6 +20,8 @@ parser = argparse.ArgumentParser()
 
 # Pretrained model
 parser.add_argument('model', type=str, help="Model to run.")
+# Cache prefix
+parser.add_argument('cache_prefix', nargs='?', type=str, choices=['mel256', 'wavelet', '44mel256', '24mel256'], default='mel256', help="Mel spectrogram or wavelets.")
 # Checkpoint directory
 parser.add_argument('-dir', '--ckpt_dir', type=str, choices=os.listdir(CKPT_DIR), default=sorted(os.listdir(CKPT_DIR))[-1], help="Checkpoints dir.")
 # Type of evaluation
@@ -39,7 +42,7 @@ args = parser.parse_args()
 
 print(f"Loading snapshots from experiment: {args.ckpt_dir}")
 
-sound_data = cd.SoundData(num_processes=args.num_workers, seed=args.seed)
+sound_data = cd.SoundData(cache_prefix=args.cache_prefix, num_processes=args.num_workers, seed=args.seed)
 device = torch.device(args.device)
 RES_DIR = os.path.join(CKPT_DIR, args.ckpt_dir)
 snaps_dir = os.path.join(RES_DIR, 'snaps')
@@ -80,15 +83,16 @@ def eval_model(loader, model, model_num, phase):
 for split_num, (train, test) in enumerate(kfold.split(sound_data.idxs, sound_data.df.target)):
 	sound_data.reset_index(train, test)
 	train_df, test_df = sound_data.get_train_test_split()
-	trainset = cd.Dset(train_df, args.num_workers, transform=cd.data_transforms['train'], phase='train')
-	testset = cd.Dset(test_df, args.num_workers, transform=cd.data_transforms['test'], phase='test')
-	loaders = {'train': thd.DataLoader(trainset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers),
-	'test': thd.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)}
+	testset = cd.Dset(test_df, args.num_workers, transform=cd.data_transforms[f'{args.cache_prefix}_test'], phase='test')
+	loaders = {'test': thd.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)}
 	if args.type == 'last':
 		model = torch.load(os.path.join(runs[split_num], args.model + '-last.model'))
+		model.eval()
 		eval_model(loaders['test'], model, split_num, 'test')
 	elif args.type == 'all':
 		for model_num, mname in enumerate(os.listdir(runs[split_num])):
 			if mname.endswith('.model'):
 				model = torch.load(os.path.join(runs[split_num], mname))
 				eval_model(loaders['test'], model, f'{split_num} / {model_num}', 'test')
+	del testset, loaders
+	gc.collect()
